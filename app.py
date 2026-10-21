@@ -97,10 +97,13 @@ def surveil(img):
     mask = cv2.dilate(mask, np.ones((9, 9), np.uint8), iterations=2)
     h, w = img.shape[:2]
     out, moved = [], 0
-    for c in cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)[0]:
-        if cv2.contourArea(c) > 0.003 * h * w:
-            x, y, bw, bh = cv2.boundingRect(c); moved += bw * bh
-            out.append(box(x, y, bw, bh, "Motion"))
+    if cv2.countNonZero(mask) < 0.5 * h * w:  # ignore camera exposure/lighting jumps
+        cnts = sorted(cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)[0],
+                      key=cv2.contourArea, reverse=True)[:5]
+        for c in cnts:
+            if cv2.contourArea(c) > 0.006 * h * w:
+                x, y, bw, bh = cv2.boundingRect(c); moved += bw * bh
+                out.append(box(x, y, bw, bh, "Motion"))
     rects, _ = HOG.detectMultiScale(img, winStride=(8, 8), padding=(8, 8), scale=1.05)
     for (x, y, bw, bh) in rects:
         out.append(box(x, y, bw, bh, "Person"))
