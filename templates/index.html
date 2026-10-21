@@ -111,10 +111,10 @@ async function useFile(f){stop();vid.src=URL.createObjectURL(f);
 function render(g){if(g!==gen)return;
  if(vid.videoWidth){if(cv.width!==vid.videoWidth){cv.width=vid.videoWidth;cv.height=vid.videoHeight}
   ctx.drawImage(vid,0,0,cv.width,cv.height);
-  const c=F[cur].c;ctx.lineWidth=Math.max(2,cv.width/400);ctx.font=`600 ${Math.max(14,cv.width/55)}px sans-serif`;
+  const c=F[cur].c;ctx.lineWidth=Math.max(2,cv.width/400);const fs=Math.max(12,Math.round(cv.width/70));ctx.font=`600 ${fs}px sans-serif`;
   for(const b of boxes){const x=b.x/K,y=b.y/K,w=b.w/K,h=b.h/K;ctx.strokeStyle=c;ctx.strokeRect(x,y,w,h);
-   const tw=ctx.measureText(b.label).width+10,fh=parseInt(ctx.font.match(/\d+/)[0])+6;
-   ctx.fillStyle=c;ctx.fillRect(x,Math.max(0,y-fh),tw,fh);ctx.fillStyle='#fff';ctx.fillText(b.label,x+5,Math.max(fh-6,y-6))}}
+   const tw=ctx.measureText(b.label).width+10,fh=fs+8;
+   const ly=y-fh<0?y:y-fh;ctx.fillStyle=c;ctx.fillRect(x,ly,tw,fh);ctx.fillStyle='#fff';ctx.textBaseline='middle';ctx.fillText(b.label,x+5,ly+fh/2);ctx.textBaseline='alphabetic'}}
  requestAnimationFrame(()=>render(g))}
 async function loop(g){
  while(g===gen){
