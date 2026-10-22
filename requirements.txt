@@ -2,6 +2,4 @@ flask>=3.0
 opencv-python-headless>=4.8,<5
 numpy
 pytesseract
-# optional, better accuracy:
-# deepface tf-keras   (accurate emotion recognition)
-# ultralytics         (custom YOLO pit model at models/pits.pt)
+onnxruntime
