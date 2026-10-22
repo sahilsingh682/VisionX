@@ -35,8 +35,9 @@ def hog():
     return lazy("hog", mk)
 def pit_yolo():
     def mk():
+        if not os.path.exists("models/pits.pt"): return None   # no custom model -> use built-in image analysis
         from ultralytics import YOLO
-        return YOLO("models/pits.pt") if os.path.exists("models/pits.pt") else None
+        return YOLO("models/pits.pt")
     return lazy("pit", mk)
 
 try:
