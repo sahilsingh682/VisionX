@@ -49,6 +49,10 @@ canvas{width:100%;height:100%;object-fit:contain;display:block}
 #log{max-height:200px;overflow:auto;font-size:.82rem}#log div{padding:4px 0;border-bottom:1px solid rgba(0,0,0,.05)}
 .msg{font-size:.85rem;color:#d6455d;margin-top:10px;min-height:18px}.msg.ok{color:#14917f}
 .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#bbb;margin-right:6px}.dot.on{background:#19c6b7;box-shadow:0 0 8px #19c6b7}
+[hidden]{display:none!important}
+.lh{display:flex;justify-content:space-between;align-items:center;gap:6px;margin-bottom:6px}.lh h4{margin:0;white-space:nowrap}.lh span{display:flex;gap:4px}
+.lb{border:1px solid var(--line);background:rgba(255,255,255,.7);border-radius:8px;padding:3px 8px;font-size:.72rem;cursor:pointer;color:var(--ink)}
+.lb:hover{background:#fff}#log div{white-space:pre-wrap}#log b{color:var(--acc);font-weight:600;margin-right:4px}
 footer{text-align:center;color:var(--mute);font-size:.8rem;padding:20px}
 </style></head><body>
 <nav class="glass"><b onclick="location.hash=''">Vision<span>X</span></b><div id="links"></div></nav>
@@ -69,10 +73,11 @@ footer{text-align:center;color:var(--mute);font-size:.8rem;padding:20px}
     <button class="btn alt" id="bFlip" title="Switch front/back camera">🔄 Flip</button>
     <button class="btn alt" id="bUp">🎞️ Upload Video</button><input type="file" id="file" accept="video/*" hidden>
     <button class="btn stop" id="bStop">⏹ Stop</button><button class="btn alt" id="bSnap">📸 Snapshot</button>
+    <button class="btn" id="bCap" hidden>📝 Capture text</button>
     <button class="btn alt" onclick="location.hash=''">← Home</button></div>
    <div class="msg" id="msg"></div></div>
   <div class="glass side"><div><h4><span class="dot" id="dot"></span>Live results</h4><div class="panel" id="info">Waiting for source…</div></div>
-   <div><h4>Event log</h4><div class="panel" id="log"></div></div></div>
+   <div><div class="lh"><h4>Event log</h4><span><button class="lb" id="lCopy">Copy</button><button class="lb" id="lDl">Download</button><button class="lb" id="lClr">Clear</button></span></div><div class="panel" id="log"></div></div></div>
  </div>
 </section>
 </main><footer>VisionX · Flask + OpenCV · Camera needs localhost or HTTPS</footer>
@@ -80,26 +85,43 @@ footer{text-align:center;color:var(--mute);font-size:.8rem;padding:20px}
 <script>
 const F={
 pits:{n:"Pits",ico:"🕳️",t:"Object Detection (Pits)",d:"Detects pits and potholes on roads from video frames.",
- u:["Road maintenance & inspection","Dashcam / drone survey","Smart-city safety reports"],c:"#ff9f43"},
+ u:["Road maintenance & inspection","Dashcam / drone survey","Smart-city safety reports"],c:"#ff9f43",w:640},
 emotion:{n:"Emotion",ico:"😊",t:"Facial Emotion Recognition",d:"Finds faces and classifies the emotion of each in real time.",
- u:["Customer experience analysis","Online learning engagement","Mental-wellbeing research"],c:"#19c6b7"},
+ u:["Customer experience analysis","Online learning engagement","Mental-wellbeing research"],c:"#19c6b7",w:480},
 ocr:{n:"OCR",ico:"🔤",t:"OCR – Text Recognition",d:"Reads printed text from video: signs, plates, documents, labels.",
- u:["Number plate / signboard reading","Document digitisation","Inventory & label scanning"],c:"#5b6cff"},
+ u:["Number plate / signboard reading","Document digitisation","Inventory & label scanning"],c:"#5b6cff",w:960},
 surveil:{n:"Surveillance",ico:"🛡️",t:"Surveillance System",d:"Motion and person detection with a timestamped alert log.",
- u:["Home & office security","Intrusion alerts","Crowd / entry monitoring"],c:"#ff6b81"}};
+ u:["Home & office security","Intrusion alerts","Crowd / entry monitoring"],c:"#ff5470",w:480}};
 const $=id=>document.getElementById(id),vid=$('vid'),cv=$('cv'),ctx=cv.getContext('2d'),grab=document.createElement('canvas');
-let facing='environment',cur=null,stream=null,running=false,gen=0,boxes=[],K=1,lastAlert=0;
+let facing='environment',cur=null,stream=null,running=false,gen=0,K=1,lastMotion=0,logs=[],pend='',curText='';
+const tracks=new Map();
 $('cards').innerHTML=Object.entries(F).map(([k,f])=>`<div class="glass card"><div class="ico">${f.ico}</div><h3>${f.t}</h3>
 <p>${f.d}</p><ul>${f.u.map(x=>`<li>${x}</li>`).join('')}</ul><button class="btn" onclick="location.hash='${k}'">Open ${f.n} →</button></div>`).join('');
 $('links').innerHTML=Object.entries(F).map(([k,f])=>`<a onclick="location.hash='${k}'">${f.n}</a>`).join('');
 const msg=(t,ok)=>{$('msg').textContent=t;$('msg').className='msg'+(ok?' ok':'')};
+const esc=s=>s.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+/* ---- event log (saved in this browser) ---- */
+function loadLog(){try{logs=JSON.parse(localStorage.getItem('visionx:'+cur)||'[]')}catch(e){logs=[]}drawLog()}
+function saveLog(){try{localStorage.setItem('visionx:'+cur,JSON.stringify(logs))}catch(e){}}
+function drawLog(){$('log').innerHTML=logs.length?logs.map(l=>`<div><b>${l.t}</b>${esc(l.m)}</div>`).join(''):'<div style="color:var(--mute)">No entries yet</div>'}
+function addLog(m){logs.unshift({t:new Date().toLocaleTimeString(),m});logs=logs.slice(0,200);saveLog();drawLog()}
+const words=s=>s.toLowerCase().replace(/[^a-z0-9\u0900-\u097f ]+/g,' ').split(/\s+/).filter(Boolean);
+function sim(a,b){const A=new Set(words(a)),B=new Set(words(b));if(!A.size||!B.size)return 0;let i=0;A.forEach(x=>B.has(x)&&i++);return i/(A.size+B.size-i)}
+function ocrLog(t){if(!t){pend='';return}   // log text once it is stable for 2 frames and not already logged
+ if(pend&&sim(pend,t)>=.7&&!logs.slice(0,8).some(l=>sim(l.m,t)>=.7))addLog(t);pend=t}
+const logText=()=>logs.slice().reverse().map(l=>`[${l.t}] ${l.m}`).join('\n');
+$('lCopy').onclick=async()=>{try{await navigator.clipboard.writeText(logText());msg('Log copied',1)}catch(e){msg('Copy not allowed by browser')}};
+$('lDl').onclick=()=>{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([logText()],{type:'text/plain'}));a.download=`visionx-${cur}-log.txt`;a.click()};
+$('lClr').onclick=()=>{logs=[];saveLog();drawLog()};
+$('bCap').onclick=()=>curText?(addLog(curText),msg('Text saved to log',1)):msg('No text detected in the current frame');
+/* ---- routing ---- */
 function route(){stop();const k=location.hash.slice(1);
- if(F[k]){cur=k;$('home').hidden=true;$('feature').hidden=false;$('ft').textContent=F[k].t;$('fd').textContent=F[k].d;
-  $('info').textContent='Waiting for source…';$('log').innerHTML='';msg('');$('hint').style.display='';ctx.clearRect(0,0,cv.width,cv.height)}
+ if(F[k]){cur=k;$('home').hidden=true;$('feature').hidden=false;$('ft').textContent=F[k].t;$('fd').textContent=F[k].d;$('bCap').hidden=k!=='ocr';
+  $('info').textContent='Waiting for source…';loadLog();msg('');$('hint').style.display='';ctx.clearRect(0,0,cv.width,cv.height)}
  else{cur=null;$('home').hidden=false;$('feature').hidden=true}}
 function stop(){running=false;gen++;if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}
- vid.pause();vid.srcObject=null;vid.removeAttribute('src');vid.load();boxes=[];$('dot').classList.remove('on')}
-function begin(){running=true;const g=++gen;$('hint').style.display='none';$('dot').classList.add('on');
+ vid.pause();vid.srcObject=null;vid.removeAttribute('src');vid.load();tracks.clear();$('dot').classList.remove('on')}
+function begin(){running=true;const g=++gen;pend='';curText='';tracks.clear();$('hint').style.display='none';$('dot').classList.add('on');
  fetch('/api/reset',{method:'POST'}).catch(()=>{});render(g);loop(g)}
 async function useCam(){stop();
  if(!navigator.mediaDevices?.getUserMedia)return msg('Camera API unavailable – open via http://localhost:5000 or HTTPS.');
@@ -108,26 +130,38 @@ async function useCam(){stop();
  catch(e){stop();msg('Camera error: '+e.message)}}
 async function useFile(f){stop();vid.src=URL.createObjectURL(f);
  try{await vid.play();msg('Analysing: '+f.name,1);begin()}catch(e){msg('Cannot play this video: '+e.message)}}
+/* ---- professional detection boxes: corner brackets, soft fill, pill label, eased motion ---- */
+function pill(x,y,w,h,r){ctx.beginPath();ctx.roundRect?ctx.roundRect(x,y,w,h,r):ctx.rect(x,y,w,h)}
+function drawBox(t,fs){const c=t.color||F[cur].c,{x,y,w,h}=t,L=Math.max(8,Math.min(w,h)*.22),lw=Math.max(2,cv.width/420);
+ ctx.save();ctx.fillStyle=c+'22';ctx.fillRect(x,y,w,h);ctx.strokeStyle=c+'80';ctx.lineWidth=1;ctx.strokeRect(x,y,w,h);
+ ctx.strokeStyle=c;ctx.lineWidth=lw*1.6;ctx.lineCap='round';ctx.lineJoin='round';ctx.beginPath();
+ for(const[px,py,dx,dy]of[[x,y,1,1],[x+w,y,-1,1],[x,y+h,1,-1],[x+w,y+h,-1,-1]]){ctx.moveTo(px+dx*L,py);ctx.lineTo(px,py);ctx.lineTo(px,py+dy*L)}ctx.stroke();
+ ctx.font=`600 ${fs}px Inter,system-ui,sans-serif`;let s=t.label||'';if(s.length>40)s=s.slice(0,39)+'…';
+ const pw=ctx.measureText(s).width+fs*1.3,ph=fs*1.9,lx=Math.max(0,Math.min(x,cv.width-pw));let ly=y-ph-5;if(ly<2)ly=Math.min(y+5,cv.height-ph-2);
+ ctx.shadowColor='rgba(0,0,0,.25)';ctx.shadowBlur=6;ctx.fillStyle=c;pill(lx,ly,pw,ph,ph/2);ctx.fill();ctx.shadowBlur=0;
+ ctx.fillStyle='#fff';ctx.textBaseline='middle';ctx.fillText(s,lx+fs*.65,ly+ph/2+1);ctx.restore()}
 function render(g){if(g!==gen)return;
  if(vid.videoWidth){if(cv.width!==vid.videoWidth){cv.width=vid.videoWidth;cv.height=vid.videoHeight}
-  ctx.drawImage(vid,0,0,cv.width,cv.height);
-  const c=F[cur].c;ctx.lineWidth=Math.max(2,cv.width/400);const fs=Math.max(12,Math.round(cv.width/70));ctx.font=`600 ${fs}px sans-serif`;
-  for(const b of boxes){const x=b.x/K,y=b.y/K,w=b.w/K,h=b.h/K;ctx.strokeStyle=c;ctx.strokeRect(x,y,w,h);
-   const tw=ctx.measureText(b.label).width+10,fh=fs+8;
-   const ly=y-fh<0?y:y-fh;ctx.fillStyle=c;ctx.fillRect(x,ly,tw,fh);ctx.fillStyle='#fff';ctx.textBaseline='middle';ctx.fillText(b.label,x+5,ly+fh/2);ctx.textBaseline='alphabetic'}}
+  ctx.drawImage(vid,0,0,cv.width,cv.height);const fs=Math.max(12,Math.round(cv.width/62));
+  for(const t of tracks.values()){t.x+=(t.tx-t.x)*.4;t.y+=(t.ty-t.y)*.4;t.w+=(t.tw-t.w)*.4;t.h+=(t.th-t.h)*.4;drawBox(t,fs)}}
  requestAnimationFrame(()=>render(g))}
+function applyBoxes(list){const seen=new Set();
+ for(const b of list){const k=b.id;seen.add(k);const n={tx:b.x/K,ty:b.y/K,tw:b.w/K,th:b.h/K,label:b.label,color:b.color};let t=tracks.get(k);
+  if(!t){t={x:n.tx,y:n.ty,w:n.tw,h:n.th};tracks.set(k,t)}Object.assign(t,n)}
+ for(const k of[...tracks.keys()])if(!seen.has(k))tracks.delete(k)}
 async function loop(g){
  while(g===gen){
   if(vid.ended){running=false;msg('Video finished',1);$('dot').classList.remove('on');return}
-  if(vid.videoWidth&&!vid.paused){K=Math.min(1,480/vid.videoWidth);
+  if(vid.videoWidth&&!vid.paused){K=Math.min(1,F[cur].w/vid.videoWidth);
    grab.width=vid.videoWidth*K;grab.height=vid.videoHeight*K;grab.getContext('2d').drawImage(vid,0,0,grab.width,grab.height);
    try{const r=await fetch('/api/'+cur,{method:'POST',headers:{'Content-Type':'application/json'},
-     body:JSON.stringify({image:grab.toDataURL('image/jpeg',.7)})});const d=await r.json();
+     body:JSON.stringify({image:grab.toDataURL('image/jpeg',cur==='ocr'?.85:.7)})});const d=await r.json();
     if(g!==gen)return;
-    if(d.error){msg('Server: '+d.error)}else{K=K;boxes=d.boxes;$('info').innerHTML=d.info.map(i=>`<div>${i}</div>`).join('');
-     if(d.alert&&Date.now()-lastAlert>2000){lastAlert=Date.now();$('log').insertAdjacentHTML('afterbegin',`<div>🔔 ${new Date().toLocaleTimeString()} – ${d.alert}</div>`)}}
+    if(d.error){msg('Server: '+d.error)}else{applyBoxes(d.boxes);$('info').innerHTML=d.info.map(i=>`<div>${esc(i)}</div>`).join('');
+     curText=d.text||'';if(cur==='ocr')ocrLog(curText);
+     for(const a of d.alerts||[]){if(a==='Motion detected'){if(Date.now()-lastMotion<5000)continue;lastMotion=Date.now()}addLog('🔔 '+a)}}
    }catch(e){msg('Server unreachable – is app.py running?')}}
-  await new Promise(r=>setTimeout(r,60))}}
+  await new Promise(r=>setTimeout(r,40))}}
 $('bCam').onclick=useCam;$('bFlip').onclick=()=>{facing=facing==='user'?'environment':'user';useCam()};$('bUp').onclick=()=>$('file').click();
 $('file').onchange=e=>{if(e.target.files[0])useFile(e.target.files[0]);e.target.value=''};
 $('bStop').onclick=()=>{stop();msg('Stopped',1)};
